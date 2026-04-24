@@ -5,28 +5,104 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cetap Official</title>
     <link rel="icon" type="image/x-icon" href="-C- _cropped.png">
+    <style>
+        :root {
+            --bg-color: #4b4f49;
+            --text-color: #ffffff;
+            --card-bg: rgba(255, 255, 255, 0.1);
+            --btn-radius: 12px;
+            --transition: all 0.3s ease;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            text-align: center;
+        }
+
+        .main-container {
+            background: var(--card-bg);
+            backdrop-filter: blur(8px);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 2rem;
+            letter-spacing: 1px;
+            color: #ffda79; /* A soft gold for the title */
+        }
+
+        p {
+            font-size: 1.1rem;
+            color: #ddd;
+            margin-bottom: 30px;
+        }
+
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px; /* Replaces those <br> tags for clean spacing */
+            align-items: center;
+        }
+
+        button {
+            width: 200px;
+            height: 55px;
+            border: none;
+            border-radius: var(--btn-radius);
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: var(--transition);
+            color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        button:hover {
+            transform: translateY(-3px);
+            filter: brightness(1.1);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.2);
+        }
+
+        /* Specific Button Colors */
+        .btn-pc { background-color: coral; }
+        .btn-yt { background-color: crimson; }
+        .btn-games { background-color: purple; }
+
+        a { text-decoration: none; }
+    </style>
 </head>
-<body bgcolor="#4b4f49">
+<body>
 
-    <H1>Welcome to the Official KillZ Cetap Website</H1>
-    <P>My PC Build Lists:</P>
+    <div class="main-container">
+        <h1>Welcome to the Official KillZ Cetap Website</h1>
+        <p>Explore my projects and gaming hub.</p>
 
-    <A href="disabled_page.html">
-        <Button style="background-color: coral; border-radius: 15px; width: 150px; height: 50px;">My PC Builds</Button>
-    </A>
-<br>
-<br>
-<a href="https://www.youtube.com/@KillZ_Cetap">
-    <button style="background-color: crimson; border-radius: 15px; width: 150px; height: 50px">My YouTube Channel</button>
-</a>
+        <div class="button-group">
+            <a href="disabled_page.html">
+                <button class="btn-pc">My PC Builds</button>
+            </a>
 
-<br>
-<br>
-<a href="games/home.html">
-    <button style="background-color: purple; border-radius: 15px; width: 150px; height: 50px">Games</button>
-</a>
-    
+            <a href="https://www.youtube.com/@KillZ_Cetap" target="_blank">
+                <button class="btn-yt">My YouTube Channel</button>
+            </a>
+            
+            <a href="games/home.html">
+                <button class="btn-games">Games</button>
+            </a>
+        </div>
+    </div>
+
 </body>
 </html>
-
-
