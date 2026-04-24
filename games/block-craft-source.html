@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mega-Craft 2D</title>
+    <style>
+        :root {
+            --sky: #87CEEB; --grass: #4caf50; --dirt: #8b4513; --stone: #707070;
+            --wood: #a0522d; --coal: #333; --iron: #d8d8d8; --gold: #ffd700;
+            --diamond: #00ffff; --bedrock: #1a1a1a;
+        }
+
+        body { margin: 0; background: #111; color: white; font-family: sans-serif; overflow: hidden; }
+        
+        /* The Camera Viewport */
+        #viewport {
+            width: 100vw; height: 100vh;
+            overflow: hidden; position: relative;
+        }
+
+        /* The actual game world */
+        #world {
+            position: absolute; display: grid;
+            grid-template-columns: repeat(25, 40px);
+            grid-template-rows: repeat(200, 40px);
+            transition: transform 0.1s ease-out;
+        }
+
+        .block { width: 40px; height: 40px; box-sizing: border-box; border: 1px solid rgba(0,0,0,0.1); }
+        
+        /* Block Textures */
+        .air { background: var(--sky); border: none; }
+        .grass { background: var(--grass); border-top: 6px solid #2e7d32; }
+        .dirt { background: var(--dirt); }
+        .stone { background: var(--stone); outline: 2px inset #555; }
+        .wood { background: var(--wood); }
+        .coal { background: var(--coal); border: 4px dotted #111; }
+        .iron { background: var(--iron); border: 4px solid #aaa; }
+        .gold { background: var(--gold); border: 4px solid #ccaa00; }
+        .diamond { background: var(--diamond); border: 4px solid #00cccc; }
+        .bedrock { background: var(--bedrock); }
+
+        #player {
+            width: 30px; height: 38px;
+            background: #ff5252; border: 2px solid #fff;
+            position: absolute; z-index: 10;
+            transition: left 0.1s, top 0.1s;
+        }
+
+        #ui {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 8px; background: rgba(0,0,0,0.8);
+            padding: 10px; border-radius: 10px; z-index: 100;
+        }
+
+        .slot {
+            width: 45px; height: 45px; border: 2px solid #555;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .slot.active { border-color: white; background: rgba(255,255,255,0.2); }
+        .slot div { width: 30px; height: 30px; }
+    </style>
+</head>
+<body>
+
+<div id="viewport">
+    <div id="world"></div>
+    <div id="player"></div>
+</div>
+
+<div id="ui">
+    <div class="slot active" data-type="grass" data-key="1"><div class="grass"></div></div>
+    <div class="slot" data-type="dirt" data-key="2"><div class="dirt"></div></div>
+    <div class="slot" data-type="stone" data-key="3"><div class="stone"></div></div>
+    <div class="slot" data-type="wood" data-key="4"><div class="wood"></div></div>
+    <div class="slot" data-type="coal" data-key="5"><div class="coal"></div></div>
+    <div class="slot" data-type="iron" data-key="6"><div class="iron"></div></div>
+    <div class="slot" data-type="gold" data-key="7"><div class="gold"></div></div>
+    <div class="slot" data-type="diamond" data-key="8"><div class="diamond"></div></div>
+</div>
+
+<script>
+    const world = document.getElementById('world');
+    const player = document.getElementById('player');
+    const viewport = document.getElementById('viewport');
+    const slots = document.querySelectorAll('.slot');
+
+    const COLS = 25;
+    const ROWS = 200; // 100 up, 100 down
+    const BLOCK_SIZE = 40;
+    
+    let playerX = 12 * BLOCK_SIZE;
+    let playerY = 98 * BLOCK_SIZE; // Start near the surface
+    let selectedBlock = 'grass';
+
+    // 1. Generate World
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            const b = document.createElement('div');
+            b.id = `b-${c}-${r}`;
+            b.classList.add('block');
+            
+            // Terrain Logic
+            if (r === 199) b.classList.add('bedrock');
+            else if (r > 100) {
+                const rand = Math.random();
+                if (rand > 0.98) b.classList.add('diamond');
+                else if (rand > 0.95) b.classList.add('gold');
+                else if (rand > 0.90) b.classList.add('iron');
+                else if (rand > 0.85) b.classList.add('coal');
+                else b.classList.add('stone');
+            }
+            else if (r === 100) b.classList.add('grass');
+            else if (r > 100) b.classList.add('dirt');
+            else b.classList.add('air');
+
+            // Interaction
+            b.onclick = () => { if(b.classList.contains('air')) b.className = `block ${selectedBlock}`; };
+            b.oncontextmenu = (e) => { 
+                e.preventDefault(); 
+                if(!b.classList.contains('bedrock')) b.className = 'block air'; 
+            };
+
+            world.appendChild(b);
+        }
+    }
+
+    function updatePlayer() {
+        player.style.left = playerX + 5 + 'px';
+        player.style.top = playerY + 'px';
+        
+        // Camera Follow
+        const camX = -(playerX - window.innerWidth / 2);
+        const camY = -(playerY - window.innerHeight / 2);
+        world.style.transform = `translate(${camX}px, ${camY}px)`;
+    }
+
+    // 2. Movement Logic
+    window.addEventListener('keydown', (e) => {
+        const key = e.key.toLowerCase();
+        if (key === 'a' || key === 'arrowleft') playerX -= BLOCK_SIZE;
+        if (key === 'd' || key === 'arrowright') playerX += BLOCK_SIZE;
+        if (key === 'w' || key === 'arrowup') playerY -= BLOCK_SIZE;
+        if (key === 's' || key === 'arrowdown') playerY += BLOCK_SIZE;
+
+        // Inventory Keys
+        if (parseInt(key) > 0 && parseInt(key) <= 8) {
+            slots.forEach(s => s.classList.remove('active'));
+            const slot = slots[parseInt(key)-1];
+            slot.classList.add('active');
+            selectedBlock = slot.dataset.type;
+        }
+        
+        updatePlayer();
+    });
+
+    // Initialize UI Clicks
+    slots.forEach(slot => {
+        slot.onclick = () => {
+            slots.forEach(s => s.classList.remove('active'));
+            slot.classList.add('active');
+            selectedBlock = slot.dataset.type;
+        };
+    });
+
+    updatePlayer();
+</script>
+</body>
+</html>
