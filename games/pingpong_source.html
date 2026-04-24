@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pro Ping Pong</title>
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        canvas {
+            background: #1a1a1a;
+            border: 4px solid #ff0055;
+            border-radius: 10px;
+            box-shadow: 0 0 30px rgba(255, 0, 85, 0.2);
+            cursor: none; /* Hide cursor to use the paddle instead */
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">Score: <span id="score">0</span> | Best: <span id="high">0</span></div>
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const highEl = document.getElementById('high');
+
+    // Game Constants
+    canvas.width = 800;
+    canvas.height = 500;
+    
+    let score = 0;
+    let highScore = localStorage.getItem('pingpong_high') || 0;
+    highEl.innerText = highScore;
+
+    const ball = {
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        radius: 10,
+        speed: 5,
+        dx: 5,
+        dy: 5,
+        color: '#ffffff'
+    };
+
+    const paddle = {
+        width: 15,
+        height: 100,
+        y: canvas.height / 2 - 50,
+        x: 20, // Player on the left
+        color: '#ff0055'
+    };
+
+    const aiPaddle = {
+        width: 15,
+        height: 100,
+        y: canvas.height / 2 - 50,
+        x: canvas.width - 35,
+        color: '#00ccff',
+        speed: 4.5 // AI speed
+    };
+
+    // Mouse control
+    canvas.addEventListener('mousemove', (e) => {
+        let rect = canvas.getBoundingClientRect();
+        let root = document.documentElement;
+        let mouseY = e.clientY - rect.top - root.scrollTop;
+        paddle.y = mouseY - (paddle.height / 2);
+    });
+
+    function resetBall() {
+        ball.x = canvas.width / 2;
+        ball.y = canvas.height / 2;
+        ball.speed = 5;
+        ball.dx = -ball.dx; // Serve to the winner
+    }
+
+    function update() {
+        ball.x += ball.dx;
+        ball.y += ball.dy;
+
+        // Top and Bottom Wall Bounce
+        if (ball.y + ball.radius > canvas.height || ball.y - ball.radius < 0) {
+            ball.dy *= -1;
+        }
+
+        // AI Movement (Smooth follow)
+        let aiCenter = aiPaddle.y + (aiPaddle.height / 2);
+        if (aiCenter < ball.y - 35) {
+            aiPaddle.y += aiPaddle.speed;
+        } else if (aiCenter > ball.y + 35) {
+            aiPaddle.y -= aiPaddle.speed;
+        }
+
+        // Collision Detection - Player Paddle
+        if (ball.x - ball.radius < paddle.x + paddle.width) {
+            if (ball.y > paddle.y && ball.y < paddle.y + paddle.height) {
+                ball.dx = Math.abs(ball.dx) + 0.5; // Speed up slightly
+                ball.dy += (ball.y - (paddle.y + paddle.height/2)) * 0.2; // Add spin
+                score++;
+                scoreEl.innerText = score;
+            } else if (ball.x < 0) {
+                // Game Over logic
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('pingpong_high', highScore);
+                    highEl.innerText = highScore;
+                }
+                score = 0;
+                scoreEl.innerText = score;
+                resetBall();
+            }
+        }
+
+        // Collision Detection - AI Paddle
+        if (ball.x + ball.radius > aiPaddle.x) {
+            if (ball.y > aiPaddle.y && ball.y < aiPaddle.y + aiPaddle.height) {
+                ball.dx = -Math.abs(ball.dx) - 0.5;
+                ball.dy += (ball.y - (aiPaddle.y + aiPaddle.height/2)) * 0.2;
+            } else if (ball.x > canvas.width) {
+                resetBall();
+            }
+        }
+    }
+
+    function draw() {
+        // Clear Canvas
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Center Line
+        ctx.setLineDash([10, 10]);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 0);
+        ctx.lineTo(canvas.width / 2, canvas.height);
+        ctx.stroke();
+
+        // Draw Ball
+        ctx.fillStyle = ball.color;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = ball.color;
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw Paddles
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = paddle.color;
+        ctx.shadowColor = paddle.color;
+        ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+
+        ctx.fillStyle = aiPaddle.color;
+        ctx.shadowColor = aiPaddle.color;
+        ctx.fillRect(aiPaddle.x, aiPaddle.y, aiPaddle.width, aiPaddle.height);
+        
+        ctx.shadowBlur = 0; // Reset blur for other elements
+    }
+
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+</script>
+
+</body>
+</html>

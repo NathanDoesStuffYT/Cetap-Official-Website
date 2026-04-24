@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Wave Shooter (City Block Map) - Auto-Fire & Multi-Level Aim</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            cursor: crosshair;
+        }
+
+        #game-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #hud {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.5);
+            font-size: 1.2em;
+            text-align: center;
+            z-index: 10;
+        }
+
+        #health-bar-container {
+            width: 200px;
+            height: 20px;
+            background-color: #444;
+            border: 2px solid #fff;
+            margin-top: 10px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        #health-bar {
+            height: 100%;
+            width: 100%;
+            background-color: #00ff00;
+            transition: width 0.3s ease-out;
+        }
+
+        #message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 40px;
+            background: rgba(179, 0, 0, 0.9);
+            border: 3px solid #ff4d4d;
+            border-radius: 12px;
+            font-size: 2em;
+            font-weight: bold;
+            text-align: center;
+            display: none;
+            z-index: 20;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.9em;
+            color: #ccc;
+            z-index: 10;
+        }
+
+        #crosshair {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: 6px;
+            height: 6px;
+            margin: -3px 0 0 -3px;
+            background-color: #00ff00;
+            border-radius: 50%;
+            box-shadow: 0 0 5px rgba(0, 255, 0, 0.8);
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+        if (Object.keys(firebaseConfig).length > 0) {
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            if (typeof __initial_auth_token !== 'undefined') {
+                signInWithCustomToken(auth, __initial_auth_token).catch(e => console.error(e));
+            } else {
+                signInAnonymously(auth).catch(e => console.error(e));
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="game-container"></div>
+    <div id="hud">
+        Wave: <span id="wave-display">1</span> |
+        Kills: <span id="kills-display">0</span> |
+        Enemies Left: <span id="enemies-left-display">0</span>
+        <div id="health-bar-container">
+            <div id="health-bar"></div>
+        </div>
+    </div>
+    <div id="crosshair"></div>
+    <div id="message"></div>
+    <div id="controls">
+        WASD: Move | Click: Shoot | Space: Jump | **Shift: Auto-Lock & Auto-Fire**
+    </div>
+
+    <script>
+        // --- Setup ---
+        let scene, camera, renderer, world, lastTime;
+        let playerMesh, playerBody;
+        const playerSpeed = 30; 
+        const playerJumpForce = 22; 
+        let playerHealth = 100;
+        const maxHealth = 100;
+        let canJump = false;
+        
+        let playerYaw = 0;
+        let pitchAngle = 0;
+        const sensitivity = 0.002;
+        const maxPitch = Math.PI * 0.48;
+
+        let kills = 0;
+        let currentWave = 1;
+        let enemies = [];
+        let raycastTargets = [];
+        let waveInProgress = false;
+        let keyState = {};
+        let isAimAssistActive = false;
+
+        // Auto-Fire Timing
+        let lastAutoShotTime = 0;
+        const AUTO_FIRE_COOLDOWN = 150; // ms between shots
+
+        const AIM_ASSIST_SPEED = 0.12; 
+        const AUTO_FIRE_THRESHOLD = 0.15; // How close to center before shooting automatically
+
+        const healthBarEl = document.getElementById('health-bar');
+        const waveDisplayEl = document.getElementById('wave-display');
+        const killsDisplayEl = document.getElementById('kills-display');
+        const enemiesLeftDisplayEl = document.getElementById('enemies-left-display');
+        const messageEl = document.getElementById('message');
+
+        function initCannon() {
+            world = new CANNON.World();
+            world.gravity.set(0, -9.82, 0);
+            world.solver.iterations = 10;
+        }
+
+        function initThree() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x222222);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.getElementById('game-container').appendChild(renderer.domElement);
+
+            scene.add(new THREE.AmbientLight(0x666666));
+            const light = new THREE.DirectionalLight(0xffffff, 1.2);
+            light.position.set(20, 40, 10);
+            light.castShadow = true;
+            scene.add(light);
+        }
+
+        function createBuildingPart(x, y, z, width, height, depth, color = 0x555555) {
+            const partGeometry = new THREE.BoxGeometry(width, height, depth);
+            const partMaterial = new THREE.MeshPhongMaterial({ color: color });
+            const partMesh = new THREE.Mesh(partGeometry, partMaterial);
+            partMesh.position.set(x, y, z);
+            partMesh.receiveShadow = true;
+            partMesh.castShadow = true;
+            scene.add(partMesh);
+
+            const partShape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2));
+            const partBody = new CANNON.Body({ mass: 0, shape: partShape });
+            partBody.position.set(x, y, z);
+            world.addBody(partBody);
+        }
+
+        function createMap() {
+            const groundY = -1.5;
+            const groundGeometry = new THREE.PlaneGeometry(300, 300); 
+            const groundMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 }); 
+            const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+            groundMesh.rotation.x = -Math.PI / 2; 
+            groundMesh.position.y = groundY; 
+            groundMesh.receiveShadow = true;
+            scene.add(groundMesh);
+
+            const groundShape = new CANNON.Plane();
+            const groundBody = new CANNON.Body({ mass: 0 });
+            groundBody.addShape(groundShape);
+            groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2); 
+            groundBody.position.y = groundY;
+            world.addBody(groundBody);
+
+            // Multi-level architecture
+            createBuildingPart(0, 0, 0, 15, 1, 15, 0x444444); // Spawn pad
+            createBuildingPart(20, 5, 20, 10, 0.5, 10, 0x666666); // High platform
+            createBuildingPart(-20, 3, -20, 12, 0.5, 12, 0x666666); // Mid platform
+            createBuildingPart(30, 8, -30, 15, 0.5, 15, 0x777777); // Very high platform
+            
+            // Ramps / Rubble
+            for(let i=0; i<10; i++){
+                createBuildingPart((Math.random()-0.5)*100, (Math.random())*5, (Math.random()-0.5)*100, 4, 0.5, 4);
+            }
+        }
+
+        function createPlayer() {
+            playerMesh = new THREE.Object3D();
+            scene.add(playerMesh);
+
+            const playerShape = new CANNON.Box(new CANNON.Vec3(0.75, 1, 0.75));
+            playerBody = new CANNON.Body({ mass: 75, shape: playerShape, fixedRotation: true });
+            playerBody.position.set(0, 5, 0); 
+            world.addBody(playerBody);
+
+            playerBody.addEventListener('collide', (e) => {
+                if (e.contact.ni.y > 0.5) canJump = true;
+                const enemy = enemies.find(en => en.body.id === e.body.id);
+                if (enemy) takeDamage(0.5);
+            });
+
+            const gunGeometry = new THREE.BoxGeometry(0.12, 0.12, 0.8);
+            const gunMaterial = new THREE.MeshPhongMaterial({ color: 0x222222 });
+            const gunMesh = new THREE.Mesh(gunGeometry, gunMaterial);
+            gunMesh.position.set(0.4, -0.3, -0.4); 
+            camera.add(gunMesh);
+            scene.add(camera);
+        }
+
+        function updateHUD() {
+            waveDisplayEl.textContent = currentWave;
+            killsDisplayEl.textContent = kills;
+            enemiesLeftDisplayEl.textContent = enemies.length;
+            healthBarEl.style.width = `${Math.max(0, (playerHealth / maxHealth) * 100)}%`;
+            healthBarEl.style.backgroundColor = playerHealth < 30 ? '#ff0000' : '#00ff00';
+        }
+
+        function takeDamage(amount) {
+            playerHealth -= amount;
+            if (playerHealth <= 0) gameOver();
+            updateHUD();
+        }
+
+        function gameOver() {
+            playerHealth = 0;
+            messageEl.innerHTML = "ELIMINATED<br><small>Kills: " + kills + "</small><br><small>Refresh to retry</small>";
+            messageEl.style.display = 'block';
+            waveInProgress = false;
+        }
+
+        function startWave(num) {
+            waveInProgress = true;
+            messageEl.innerHTML = `WAVE ${num}`;
+            messageEl.style.display = 'block';
+            setTimeout(() => {
+                messageEl.style.display = 'none';
+                for (let i = 0; i < 5 + num * 2; i++) createEnemy(5 + num * 0.5);
+            }, 1500);
+        }
+
+        function createEnemy(speed) {
+            const enemyGroup = new THREE.Group();
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 0.2), new THREE.MeshPhongMaterial({ color: 0xeeeeee }));
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshPhongMaterial({ color: 0xcc0000 }));
+            head.position.y = 1.2;
+            enemyGroup.add(torso, head);
+
+            // Random spawn in volume
+            const x = (Math.random() - 0.5) * 120;
+            const z = (Math.random() - 0.5) * 120;
+            const y = 10; // Drop from sky onto platforms
+            enemyGroup.position.set(x, y, z);
+            scene.add(enemyGroup);
+
+            const body = new CANNON.Body({ mass: 5, shape: new CANNON.Box(new CANNON.Vec3(0.5, 1, 0.5)), fixedRotation: true });
+            body.position.set(x, y, z);
+            world.addBody(body);
+
+            const enemy = {
+                mesh: enemyGroup,
+                body: body,
+                speed: speed,
+                health: 10,
+                update: function() {
+                    const dx = playerBody.position.x - this.body.position.x;
+                    const dz = playerBody.position.z - this.body.position.z;
+                    const dist = Math.sqrt(dx*dx + dz*dz);
+                    if(dist > 0.1) {
+                        this.body.velocity.x = (dx/dist) * this.speed;
+                        this.body.velocity.z = (dz/dist) * this.speed;
+                    }
+                    this.mesh.position.copy(this.body.position);
+                    this.mesh.rotation.y = Math.atan2(dx, dz);
+                },
+                takeDamage: function(dmg) {
+                    this.health -= dmg;
+                    if(this.health <= 0) this.die();
+                },
+                die: function() {
+                    scene.remove(this.mesh);
+                    world.removeBody(this.body);
+                    enemies = enemies.filter(e => e !== this);
+                    raycastTargets = raycastTargets.filter(t => t !== this.mesh);
+                    kills++;
+                    updateHUD();
+                    if(enemies.length === 0) { currentWave++; startWave(currentWave); }
+                }
+            };
+            enemies.push(enemy);
+            raycastTargets.push(enemyGroup);
+        }
+
+        function shoot() {
+            if (playerHealth <= 0 || !document.pointerLockElement) return;
+
+            const raycaster = new THREE.Raycaster();
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            raycaster.set(camera.position, dir);
+
+            const intersects = raycaster.intersectObjects(raycastTargets, true);
+            if (intersects.length > 0) {
+                let obj = intersects[0].object;
+                while(obj.parent && !obj.isGroup) obj = obj.parent;
+                const hitEnemy = enemies.find(e => e.mesh === obj);
+                if(hitEnemy) hitEnemy.takeDamage(4);
+
+                const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshBasicMaterial({color:0xffff00}));
+                dot.position.copy(intersects[0].point);
+                scene.add(dot);
+                setTimeout(() => scene.remove(dot), 100);
+            }
+        }
+
+        function applyAimAssist(now) {
+            if (!isAimAssistActive || enemies.length === 0 || !document.pointerLockElement) return;
+
+            let target = null;
+            let minDist = Infinity;
+            enemies.forEach(e => {
+                const d = camera.position.distanceToSquared(e.body.position);
+                if(d < minDist) { minDist = d; target = e; }
+            });
+
+            if(!target) return;
+
+            // TRACKING: Target the chest area
+            const targetPos = new THREE.Vector3().copy(target.body.position);
+            // Height adjustment: target.body.position is the center. 
+            // Torso is around y=0.5 relative to body bottom.
+            targetPos.y += 0.2; 
+            
+            const dir = new THREE.Vector3().subVectors(targetPos, camera.position).normalize();
+
+            // Correct Horizontal Angle
+            const reqYaw = Math.atan2(-dir.x, -dir.z);
+            
+            // Correct Vertical Angle (Fixed Inversion)
+            // atan2(y, x) where x is the horizontal distance.
+            // Using positive result because pitchAngle follows standard mouse logic (up is negative, down is positive)
+            const horizontalDist = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
+            const reqPitch = Math.atan2(dir.y, horizontalDist);
+
+            // Smooth snap Yaw
+            let yDiff = reqYaw - playerYaw;
+            while(yDiff > Math.PI) yDiff -= Math.PI*2;
+            while(yDiff < -Math.PI) yDiff += Math.PI*2;
+            playerYaw += yDiff * AIM_ASSIST_SPEED;
+
+            // Smooth snap Pitch (Inversion handled by using Math.asin or atan2 properly)
+            // In Three.js, looking UP is a POSITIVE pitch rotation in some contexts, but our manual controller 
+            // logic uses negative for looking up. I will flip the sign to match the controller logic.
+            pitchAngle += (-reqPitch - pitchAngle) * AIM_ASSIST_SPEED;
+
+            // AUTO-FIRE: If the angle is close enough to target, pull the trigger
+            const totalAngleDiff = Math.abs(yDiff) + Math.abs(-reqPitch - pitchAngle);
+            if(totalAngleDiff < AUTO_FIRE_THRESHOLD) {
+                if(now - lastAutoShotTime > AUTO_FIRE_COOLDOWN) {
+                    shoot();
+                    lastAutoShotTime = now;
+                }
+            }
+        }
+
+        function onMouseMove(e) {
+            if(isAimAssistActive || !document.pointerLockElement) return;
+            playerYaw -= e.movementX * sensitivity;
+            pitchAngle -= e.movementY * sensitivity; // Mouse Down = Look Up (matches standard FPS)
+            pitchAngle = Math.max(-maxPitch, Math.min(maxPitch, pitchAngle));
+        }
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+            const dt = lastTime ? (now - lastTime) / 1000 : 0.016;
+            lastTime = now;
+
+            world.step(1/60, dt, 3);
+
+            if(playerHealth > 0) {
+                // Movement
+                const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0,1,0), playerYaw);
+                const rgt = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0,1,0), playerYaw);
+                const vel = new THREE.Vector3();
+                if(keyState['KeyW']) vel.add(fwd);
+                if(keyState['KeyS']) vel.add(fwd.clone().negate());
+                if(keyState['KeyA']) vel.add(rgt.clone().negate());
+                if(keyState['KeyD']) vel.add(rgt);
+                
+                if(vel.length() > 0) vel.normalize().multiplyScalar(playerSpeed);
+                playerBody.velocity.x = vel.x;
+                playerBody.velocity.z = vel.z;
+
+                applyAimAssist(now);
+
+                camera.position.set(playerBody.position.x, playerBody.position.y + 0.8, playerBody.position.z);
+                camera.rotation.set(pitchAngle, playerYaw, 0, 'YXZ');
+                
+                enemies.forEach(e => e.update());
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = () => {
+            initCannon();
+            initThree();
+            createMap();
+            createPlayer();
+            
+            document.addEventListener('keydown', e => {
+                keyState[e.code] = true;
+                if(e.code === 'Space' && canJump) { playerBody.velocity.y = playerJumpForce; canJump = false; }
+                if(e.code === 'ShiftLeft') isAimAssistActive = true;
+            });
+            document.addEventListener('keyup', e => {
+                keyState[e.code] = false;
+                if(e.code === 'ShiftLeft') isAimAssistActive = false;
+            });
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mousedown', () => shoot());
+            renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            updateHUD();
+            startWave(1);
+            animate();
+        };
+    </script>
+</body>
+</html>
